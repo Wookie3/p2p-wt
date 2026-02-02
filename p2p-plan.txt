@@ -1,0 +1,281 @@
+P2P Walkie Talkie App - Project Plan
+
+=====================================
+
+Tech Stack
+----------
+Frontend:
+- Next.js 14+ (App Router) - Modern React framework with SSR
+- TypeScript - Type safety
+- Tailwind CSS - Sleek, modern styling
+- shadcn/ui - Beautiful, accessible UI components
+
+Backend/Infrastructure:
+- Supabase - Database, Auth, and Realtime
+- PeerJS - WebRTC wrapper for P2P voice communication
+- Supabase Realtime - Signaling for WebRTC connections
+
+Additional Tools:
+- Zustand - Lightweight state management
+- react-hot-toast - Beautiful notifications
+
+=====================================
+
+Database Schema (Supabase)
+--------------------------
+
+-- Profiles (extends Supabase auth)
+profiles (
+  id: uuid (references auth.users),
+  username: text (unique),
+  is_online: boolean,
+  peer_id: text (for WebRTC),
+  created_at: timestamp
+)
+
+-- Contacts/Friends
+contacts (
+  id: uuid,
+  user_id: uuid (references profiles),
+  contact_id: uuid (references profiles),
+  created_at: timestamp,
+  CONSTRAINT unique_contact UNIQUE (user_id, contact_id)
+)
+
+-- Friend Requests
+friend_requests (
+  id: uuid,
+  from_user_id: uuid (references profiles),
+  to_user_id: uuid (references profiles),
+  status: enum ('pending', 'accepted', 'rejected'),
+  created_at: timestamp
+)
+
+-- No call history at this stage
+
+=====================================
+
+Configuration Answers
+---------------------
+1. Authentication: Email/password only
+2. Anonymous session duration: 12 hours
+3. Audio quality: Medium-low (optimized for simple radio communication, bandwidth-efficient)
+4. Contact limit: 100 contacts per user
+5. Call history: Not needed at this stage
+
+=====================================
+
+Core Features
+-------------
+
+1. User Authentication
+   - Anonymous users get generated username (verb+animal)
+   - Login via Supabase with email/password
+   - Session persistence for logged-in users only
+   - Anonymous users have 12-hour ephemeral sessions
+
+2. Username Generation
+   - Random verb + animal combinations (e.g., "RunningDuck", "SleepyLion")
+   - Check uniqueness before assignment
+   - Option to regenerate username (anonymous only)
+
+3. Contact System
+   - Search users by exact username
+   - Send friend requests
+   - Accept/reject requests
+   - View contact list with online status
+   - Maximum 100 contacts per user
+   - Real-time status updates via Supabase Realtime
+
+4. P2P Voice Communication
+   - Push-to-talk interface (hold to transmit)
+   - WebRTC via PeerJS for direct P2P audio
+   - Supabase Realtime for signaling/negotiation
+   - Multiple simultaneous conversations (tabs per contact)
+   - Audio codec: Opus at medium-low bitrate (16-24 kbps)
+   - Visual feedback when transmitting/receiving
+
+5. UI/UX
+   - Dark mode by default (sleek look)
+   - Animated transitions
+   - Push-to-talk button with press-and-hold animation
+   - Contact status indicators (online/offline)
+   - Toast notifications for requests/messages
+
+=====================================
+
+Project Structure
+-----------------
+
+p2p-wt/
+├── app/
+│   ├── (auth)/
+│   │   └── login/
+│   │       └── page.tsx
+│   ├── (main)/
+│   │   ├── contacts/
+│   │   │   └── page.tsx
+│   │   ├── requests/
+│   │   │   └── page.tsx
+│   │   ├── call/[username]/
+│   │   │   └── page.tsx
+│   │   └── settings/
+│   │       └── page.tsx
+│   ├── layout.tsx
+│   └── page.tsx
+├── components/
+│   ├── ui/ (shadcn components)
+│   ├── PTTButton.tsx
+│   ├── ContactCard.tsx
+│   ├── RequestCard.tsx
+│   ├── AudioVisualizer.tsx
+│   └── CallInterface.tsx
+├── lib/
+│   ├── supabase.ts
+│   ├── peerjs.ts
+│   ├── username-generator.ts
+│   ├── audio-recorder.ts
+│   └── utils.ts
+├── store/
+│   └── useStore.ts
+├── types/
+│   └── index.ts
+├── public/
+│   └── sounds/
+└── package.json
+
+=====================================
+
+Implementation Steps
+--------------------
+
+Phase 1: Project Setup
+1. Initialize Next.js project with TypeScript and Tailwind
+2. Set up Supabase project and get credentials
+3. Install dependencies:
+   - @supabase/supabase-js
+   - peerjs
+   - zustand
+   - react-hot-toast
+   - @radix-ui/* (for shadcn/ui)
+4. Configure environment variables (.env.local)
+5. Set up shadcn/ui
+
+Phase 2: Database & Auth
+1. Create Supabase tables with RLS policies:
+   - profiles table
+   - contacts table
+   - friend_requests table
+2. Set up Supabase Auth (email/password)
+3. Create username generator utility (verb + animal combinations)
+4. Implement anonymous session management (12hr expiration)
+5. Set up Row Level Security (RLS) policies
+
+Phase 3: Core UI Components
+1. Build base layout with navigation
+2. Create contact card components
+3. Implement PTT button with hold animations
+4. Add audio visualizer component
+5. Build notification/toast components
+
+Phase 4: Contact System
+1. Implement user search by exact username
+2. Create friend request flow (send/accept/reject)
+3. Build contact list with real-time status
+4. Add request notifications
+5. Implement contact limit (100 max)
+
+Phase 5: P2P Voice (Critical)
+1. Set up PeerJS connection management
+2. Implement WebRTC signaling via Supabase Realtime:
+   - Peer ID exchange
+   - Offer/answer exchange
+   - ICE candidate exchange
+3. Build audio capture with MediaRecorder API:
+   - Medium-low quality (16-24 kbps Opus)
+   - Push-to-talk logic
+4. Create data channels for audio transmission
+5. Implement receive/playback logic with Web Audio API
+6. Handle connection states (connecting, connected, error)
+7. Add proper cleanup on disconnect
+
+Phase 6: Authentication Integration
+1. Connect Supabase Auth (email/password)
+2. Implement login/register pages
+3. Handle anonymous to authenticated transition
+4. Protect routes where needed
+5. Manage session persistence
+
+Phase 7: Polish
+1. Add loading states and error handling
+2. Implement proper cleanup (dispose PeerJS connections)
+3. Add sound effects (PTT press, notifications)
+4. Optimize performance
+5. Test on mobile devices (touch events)
+6. Accessibility improvements
+7. Deploy to Vercel
+
+=====================================
+
+Technical Considerations
+------------------------
+
+P2P Signaling Flow:
+1. User A initiates call to User B
+2. User A generates PeerJS offer
+3. Send offer via Supabase Realtime to User B
+4. User B accepts and generates answer
+5. Send answer back via Supabase Realtime
+6. Establish WebRTC connection
+7. Exchange audio streams directly (peer-to-peer)
+
+Push-to-Talk Logic:
+- Mouse/Touch Down → Start MediaRecorder → Capture audio chunks
+- Mouse/Touch Up → Stop recording → Send via PeerJS data channel
+- Receive → Decode chunks → Play via Web Audio API
+
+Audio Configuration:
+- Codec: Opus
+- Bitrate: 16-24 kbps (medium-low)
+- Sample rate: 16 kHz (sufficient for voice)
+- Frame duration: 20-60ms (adjustable for latency/quality tradeoff)
+
+Username Format:
+- Verbs: Running, Sleeping, Happy, Angry, Fast, Slow, Silent, Loud, Brave, Calm, etc.
+- Animals: Duck, Lion, Bear, Fox, Eagle, Wolf, Cat, Dog, Tiger, Owl, etc.
+- Example: "RunningDuck", "SleepyFox", "HappyEagle", "AngryTiger"
+
+State Management (Zustand):
+- Current user profile
+- Contact list (max 100)
+- Active calls
+- Friend requests
+- Online status of contacts
+- Anonymous session timestamp
+
+RLS Policies:
+- Users can only read/write their own profiles
+- Users can only read/write their own contacts
+- Users can only read/write their own friend requests
+- Public read access for usernames (for search)
+
+=====================================
+
+Environment Variables
+---------------------
+
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+PEERJS_API_KEY=your_peerjs_api_key (optional, for free STUN servers)
+
+=====================================
+
+Next Steps
+----------
+1. Create Next.js project
+2. Set up Supabase project
+3. Create database schema
+4. Implement Phase 1-2
+5. Build core features incrementally
+
+=====================================
