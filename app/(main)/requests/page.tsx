@@ -15,25 +15,14 @@ export default function RequestsPage() {
     if (!currentUser) return
 
     try {
-      const { error: updateError } = await supabase
-        // @ts-ignore
-        .from('friend_requests')
-        // @ts-ignore
-        .update({ status: 'accepted' })
-        .eq('id', requestId)
+      // Use atomic RPC function for friend acceptance
+      const { error } = await supabase.rpc('accept_friend_request', {
+        request_id: requestId,
+        current_user_id: currentUser.id,
+        from_user_id: fromUserId
+      })
 
-      if (updateError) throw updateError
-
-      const { error: contactError } = await supabase
-        // @ts-ignore
-        .from('contacts')
-        // @ts-ignore
-        .insert([
-          { user_id: currentUser.id, contact_id: fromUserId },
-          { user_id: fromUserId, contact_id: currentUser.id }
-        ])
-
-      if (contactError) throw contactError
+      if (error) throw error
 
       updateFriendRequestStatus(requestId, 'accepted')
       toast.success('Friend request accepted!')
@@ -46,9 +35,7 @@ export default function RequestsPage() {
   const handleReject = async (requestId: string) => {
     try {
       const { error } = await supabase
-        // @ts-ignore
         .from('friend_requests')
-        // @ts-ignore
         .update({ status: 'rejected' })
         .eq('id', requestId)
 

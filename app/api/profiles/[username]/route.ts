@@ -31,7 +31,9 @@ export async function GET(
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
     }
 
-    return NextResponse.json(profile)
+    // Security: Exclude sensitive fields from public response
+    const { peer_id, in_call_with, user_id, ...publicProfile } = profile
+    return NextResponse.json(publicProfile)
   } catch (error) {
     console.error('Error fetching profile:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

@@ -6,6 +6,10 @@ import { AudioRecorder } from '@/lib/audio-recorder'
 import { createPeer, getPeer, destroyPeer, updatePeerId } from '@/lib/peerjs'
 import { useStore } from '@/store/useStore'
 import toast from 'react-hot-toast'
+import { supabase } from '@/lib/supabase'
+import { sanitizeUsername } from '@/lib/validation'
+import type { DataConnection } from 'peerjs'
+import type { AudioChunkMessage } from '@/types/peerjs'
 
 export default function CallPage() {
   const params = useParams()
@@ -15,10 +19,10 @@ export default function CallPage() {
   const [isTransmitting, setIsTransmitting] = useState(false)
   const [isReceiving, setIsReceiving] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting')
-  
+
   const audioRecorderRef = useRef<AudioRecorder | null>(null)
-  const peerConnectionRef = useRef<any>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
+  const peerConnectionRef = useRef<DataConnection | null>(null)
 
   useEffect(() => {
     if (!currentUser) {
@@ -39,14 +43,22 @@ export default function CallPage() {
 
       const peer = createPeer(currentUser.id)
       await updatePeerId(currentUser.id, peer.id)
+    } catch (error) {
 
       peer.on('open', async (peerId) => {
         console.log('Peer opened with ID:', peerId)
-        
+
         try {
           const response = await fetch(`/api/profiles/${params.username}`)
           if (response.ok) {
             const contactProfile = await response.json()
+
+            // Signal the call via Supabase Realtime
+            await supabase.signalCall(contactProfile.id, {
+              from: currentUser.username,
+              peerId: peerId
+            })
+
             if (contactProfile?.peer_id) {
               connectToPeer(contactProfile.peer_id)
             }
@@ -56,7 +68,25 @@ export default function CallPage() {
         }
       })
 
-      peer.on('connection', (conn) => {
+      peer.on('connection', async (conn) => {
+        // Security: Verify incoming connection is from a known contact
+        console.log('Incoming connection from:', conn.peer)
+
+        // Verify peer is in contacts list before accepting connection
+        const { data: contact } = await supabase
+          .from('contacts')
+          .select('contact_id')
+          .eq('user_id', currentUser.id)
+          .eq('contact_id', conn.peer)
+          .maybeSingle()
+
+        if (!contact) {
+          console.warn('Rejecting unauthorized connection from:', conn.peer)
+          conn.close()
+          toast.error('Unauthorized connection attempt')
+          return
+        }
+
         peerConnectionRef.current = conn
         setupDataChannel(conn)
         setConnectionStatus('connected')
@@ -92,9 +122,9 @@ export default function CallPage() {
     setupDataChannel(conn)
   }
 
-  const setupDataChannel = (conn: any) => {
-    conn.on('data', (data: any) => {
-      if (data.type === 'audio') {
+  const setupDataChannel = (conn: DataConnection) => {
+    conn.on('data', (data: AudioChunkMessage) => {
+      if (data.type === 'audio' || data.type === 'audio-chunk') {
         playAudioChunk(data.audioData)
       }
     })
@@ -102,8 +132,14 @@ export default function CallPage() {
 
   const handleIncomingStream = async (stream: MediaStream) => {
     if (!audioContextRef.current) {
-      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+      audioContextRef.current = new AudioContext()
     }
+
+    // Resume context if suspended
+    if (audioContextRef.current.state === 'suspended') {
+      await audioContextRef.current.resume()
+    }
+
     const source = audioContextRef.current.createMediaStreamSource(stream)
     source.connect(audioContextRef.current.destination)
     setIsReceiving(true)
@@ -135,7 +171,15 @@ export default function CallPage() {
     if (!audioRecorderRef.current || !peerConnectionRef.current) return
 
     try {
-      await audioRecorderRef.current.startRecording()
+      await audioRecorderRef.current.startRecording(async (chunk) => {
+        const audioArrayBuffer = await chunk.arrayBuffer()
+        if (peerConnectionRef.current?.open) {
+          peerConnectionRef.current.send({
+            type: 'audio-chunk',
+            audioData: audioArrayBuffer
+          })
+        }
+      })
       setIsTransmitting(true)
     } catch (error) {
       console.error('Error starting recording:', error)
@@ -147,14 +191,7 @@ export default function CallPage() {
     if (!audioRecorderRef.current || !peerConnectionRef.current) return
 
     try {
-      const audioBlob = await audioRecorderRef.current.stopRecording()
-      const audioArrayBuffer = await audioBlob.arrayBuffer()
-
-      peerConnectionRef.current.send({
-        type: 'audio',
-        audioData: audioArrayBuffer
-      })
-
+      await audioRecorderRef.current.stopRecording()
       setIsTransmitting(false)
     } catch (error) {
       console.error('Error stopping recording:', error)
@@ -163,13 +200,19 @@ export default function CallPage() {
   }
 
   const cleanup = () => {
+    // Close AudioContext properly to prevent memory leaks
+    if (audioContextRef.current?.state === 'running') {
+      audioContextRef.current.close()
+    }
+    audioContextRef.current = null
+
+    // Destroy audio recorder
     if (audioRecorderRef.current) {
       audioRecorderRef.current.destroy()
     }
+
+    // Destroy peer connection
     destroyPeer()
-    if (audioContextRef.current) {
-      audioContextRef.current.close()
-    }
   }
 
   const handleEndCall = () => {
@@ -190,14 +233,14 @@ export default function CallPage() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-950 p-8">
-      <div className="mb-8 text-center">
-        <h1 className="mb-2 text-3xl font-bold text-white">
-          Talking with {params.username}
-        </h1>
-        <p className="text-zinc-400">
-          {connectionStatus === 'connected' ? 'Connected' : 'Disconnected'}
-        </p>
-      </div>
+    <div className="mb-8 text-center">
+      <h1 className="mb-2 text-3xl font-bold text-white">
+        Talking with {sanitizeUsername(params.username)}
+      </h1>
+      <p className="text-zinc-400">
+        {connectionStatus === 'connected' ? 'Connected' : 'Disconnected'}
+      </p>
+    </div>
 
       {isReceiving && (
         <div className="mb-8 flex items-center gap-2 rounded-full bg-green-500/20 px-4 py-2">
@@ -212,7 +255,22 @@ export default function CallPage() {
         onMouseLeave={handlePTTEnd}
         onTouchStart={handlePTTStart}
         onTouchEnd={handlePTTEnd}
+        onKeyDown={(e) => {
+          if (e.key === ' ' || e.key === 'Enter') {
+            e.preventDefault()
+            handlePTTStart()
+          }
+        }}
+        onKeyUp={(e) => {
+          if (e.key === ' ' || e.key === 'Enter') {
+            e.preventDefault()
+            handlePTTEnd()
+          }
+        }}
         disabled={connectionStatus !== 'connected'}
+        aria-label={isTransmitting ? 'Release to stop talking' : 'Press and hold to talk'}
+        aria-pressed={isTransmitting}
+        role="button"
         className={`mb-8 h-32 w-32 rounded-full text-lg font-bold text-white transition-all ${
           isTransmitting
             ? 'h-40 w-40 scale-110 bg-red-600'

@@ -1,37 +1,68 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { useStore } from '@/store/useStore'
 import { supabase } from '@/lib/supabase'
 import toast from 'react-hot-toast'
 import { Contact } from '@/types'
+import { validateUsername } from '@/lib/validation'
 
 export default function ContactsPage() {
+  const router = useRouter()
   const contacts = useStore((state) => state.contacts)
   const setContacts = useStore((state) => state.setContacts)
   const addContact = useStore((state) => state.addContact)
   const currentUser = useStore((state) => state.currentUser)
   const [searchQuery, setSearchQuery] = useState('')
   const [isSearching, setIsSearching] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    async function loadContacts() {
+      if (!currentUser) return
+
+      setIsLoading(true)
+      try {
+        const { data, error } = await supabase
+          .from('contacts')
+          .select('*, contact:contact_id(*)')
+          .eq('user_id', currentUser.id)
+
+        if (error) throw error
+        setContacts(data || [])
+      } catch (error) {
+        console.error('Error loading contacts:', error)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    loadContacts()
+  }, [currentUser?.id])
 
   const handleSearchUser = async (e: React.FormEvent) => {
     e.preventDefault()
+
     if (!searchQuery.trim()) return
+
+    const validation = validateUsername(searchQuery)
+    if (!validation.valid) {
+      toast.error(validation.error)
+      return
+    }
 
     setIsSearching(true)
 
     try {
       const { data, error } = await supabase
-        // @ts-ignore
         .from('profiles')
-        // @ts-ignore
-        .select('*')
-        .ilike('username', searchQuery)
+        .select('*, contacts!inner(user_id)')
+        .ilike('username', `${validation.sanitized}%`)
         .limit(10)
 
       if (error) throw error
 
-      if (!data || data.length === 0) {
+      if (!data || !data.length) {
         toast('No users found', { icon: '🔍' })
       } else {
         toast.success(`Found ${data.length} user(s)`)
@@ -49,9 +80,7 @@ export default function ContactsPage() {
 
     try {
       const { error } = await supabase
-        // @ts-ignore
         .from('friend_requests')
-        // @ts-ignore
         .insert({
           from_user_id: currentUser.id,
           to_user_id: contactId,
@@ -65,6 +94,10 @@ export default function ContactsPage() {
       console.error('Error sending request:', error)
       toast.error('Failed to send request')
     }
+  }
+
+  const handleCall = (username: string) => {
+    router.push(`/call/${username}`)
   }
 
   return (
@@ -90,7 +123,11 @@ export default function ContactsPage() {
         </form>
       </div>
 
-      {contacts.length === 0 ? (
+      {isLoading ? (
+        <div className="flex justify-center p-8">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+        </div>
+      ) : contacts.length === 0 ? (
         <div className="rounded-lg border border-dashed border-zinc-700 p-12 text-center">
           <p className="text-zinc-400">No contacts yet</p>
           <p className="mt-2 text-sm text-zinc-500">Search for users to add them as contacts</p>
@@ -111,7 +148,10 @@ export default function ContactsPage() {
                   </p>
                 </div>
               </div>
-              <button className="rounded-lg bg-blue-600 px-4 py-2 font-medium text-white transition-colors hover:bg-blue-700">
+              <button 
+                onClick={() => handleCall(contact.contact.username)}
+                className="rounded-lg bg-blue-600 px-4 py-2 font-medium text-white transition-colors hover:bg-blue-700"
+              >
                 Call
               </button>
             </div>
