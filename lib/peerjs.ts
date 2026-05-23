@@ -8,8 +8,21 @@ export function createPeer(userId: string): Peer {
     peerInstance.destroy()
   }
 
-  peerInstance = new Peer(userId, {
-    debug: 2
+  // Security: Generate secure random peer ID without user ID component
+  const securePeerId = `p2p_${crypto.randomUUID().replace(/-/g, '').substring(0, 16)}`
+
+  peerInstance = new Peer(securePeerId, {
+    debug: 2,
+    config: {
+      'iceServers': [
+        { 'urls': 'stun:stun.l.google.com:19302' },
+        { 'urls': 'stun:stun1.l.google.com:19302' },
+        { 'urls': 'stun:stun2.l.google.com:19302' },
+        { 'urls': 'stun:stun3.l.google.com:19302' },
+        { 'urls': 'stun:stun4.l.google.com:19302' },
+      ],
+      'sdpSemantics': 'unified-plan'
+    }
   })
 
   peerInstance.on('error', (err) => {
@@ -32,9 +45,7 @@ export function destroyPeer(): void {
 
 export async function updatePeerId(userId: string, peerId: string): Promise<void> {
   const { error } = await supabase
-    // @ts-ignore
     .from('profiles')
-    // @ts-ignore
     .update({ peer_id: peerId })
     .eq('id', userId)
 

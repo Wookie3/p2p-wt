@@ -19,7 +19,7 @@ export class AudioRecorder {
     }
   }
 
-  startRecording(): void {
+  startRecording(onData?: (data: Blob) => void): void {
     if (!this.stream) {
       throw new Error('Audio stream not initialized')
     }
@@ -35,10 +35,13 @@ export class AudioRecorder {
     this.mediaRecorder.ondataavailable = (event) => {
       if (event.data.size > 0) {
         this.audioChunks.push(event.data)
+        if (onData) {
+          onData(event.data)
+        }
       }
     }
 
-    this.mediaRecorder.start(100)
+    this.mediaRecorder.start(100) // Collect 100ms chunks
   }
 
   stopRecording(): Promise<Blob> {
@@ -48,11 +51,18 @@ export class AudioRecorder {
         return
       }
 
-      this.mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' })
-        resolve(audioBlob)
+      if (this.mediaRecorder.state === 'inactive') {
+        resolve(new Blob(this.audioChunks, { type: 'audio/webm' }))
+        return
       }
 
+      const stopHandler = () => {
+        const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' })
+        resolve(audioBlob)
+        this.mediaRecorder?.removeEventListener('stop', stopHandler)
+      }
+
+      this.mediaRecorder.addEventListener('stop', stopHandler)
       this.mediaRecorder.stop()
     })
   }

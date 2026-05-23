@@ -18,14 +18,14 @@ interface AppState {
 export const useStore = create<AppState>((set) => ({
   currentUser: null,
   setCurrentUser: (currentUser) => set({ currentUser }),
-  
+
   contacts: [],
   setContacts: (contacts) => set({ contacts }),
   addContact: (contact) => set((state) => ({ contacts: [...state.contacts, contact] })),
   removeContact: (contactId) => set((state) => ({
     contacts: state.contacts.filter((c) => c.contact_id !== contactId)
   })),
-  
+
   friendRequests: [],
   setFriendRequests: (friendRequests) => set({ friendRequests }),
   addFriendRequest: (request) => set((state) => ({

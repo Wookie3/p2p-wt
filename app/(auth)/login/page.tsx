@@ -19,16 +19,48 @@ export default function LoginPage() {
     setGeneratedUsername(generateUsername())
   }, [])
 
-  const handleAnonymousLogin = () => {
-    const user = {
-      id: `anon_${Date.now()}`,
-      username: generatedUsername,
-      is_online: true,
-      session_expires_at: new Date(Date.now() + 12 * 60 * 60 * 1000)
+  const handleAnonymousLogin = async () => {
+    try {
+      // Create anonymous user in Supabase Auth
+      const { data: { user }, error: authError } = await supabase.auth.signInAnonymously()
+
+      if (authError) {
+        console.error('Anonymous auth error:', authError)
+        toast.error('Failed to create session')
+        return
+      }
+
+      // Create profile record in database
+      const { error: profileError } = await supabase
+        // @ts-ignore
+        .from('profiles')
+        // @ts-ignore
+        .insert({
+          user_id: user.id,
+          username: generatedUsername,
+          is_online: true
+        })
+
+      if (profileError) {
+        console.error('Profile creation error:', profileError)
+        toast.error('Failed to create profile')
+        return
+      }
+
+      // Set user in Zustand store
+      setCurrentUser({
+        id: user.id,
+        username: generatedUsername,
+        is_online: true,
+        session_expires_at: new Date(Date.now() + 12 * 60 * 60 * 1000)
+      })
+
+      toast.success(`Welcome, ${generatedUsername}!`)
+      router.push('/contacts')
+    } catch (error) {
+      console.error('Anonymous login error:', error)
+      toast.error('Failed to log in anonymously')
     }
-    setCurrentUser(user)
-    toast.success(`Welcome, ${user.username}!`)
-    router.push('/contacts')
   }
 
   const handleEmailLogin = async (e: React.FormEvent) => {
